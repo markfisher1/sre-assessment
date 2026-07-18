@@ -1,4 +1,4 @@
-# Kibana Dashboards — build & export process
+# Kibana Dashboards: Build & export process
 
 The three required dashboards (`service-health.ndjson`, `rum-performance.ndjson`,
 `business-transactions.ndjson`) are **Kibana Saved Objects**, which are only
