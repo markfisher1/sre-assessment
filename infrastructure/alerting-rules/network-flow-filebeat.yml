@@ -1,0 +1,64 @@
+# Network flow + firewall log ingestion (Section 3.3).
+# CNI assumed Cilium — swap the hubble section for Calico Felix log parsing
+# if the actual cluster differs (see docs/DECISIONS.md ADR-007).
+
+# --- Kubernetes NetworkPolicy enforcement: Cilium Hubble flow logs ---
+filebeat.inputs:
+  - type: log
+    id: cilium-hubble-flows
+    paths: ["/var/run/cilium/hubble/flows.log"]
+    json.keys_under_root: true
+    json.add_error_key: true
+    fields:
+      data_stream.dataset: network_flow
+    fields_under_root: true
+    processors:
+      - drop_fields:
+          fields: ["agent.ephemeral_id"]
+
+# Captures per requirement: verdict (FORWARDED/DROPPED), source/destination
+# pod identity, namespace, port, and the NetworkPolicy name responsible for
+# the verdict — all native Hubble flow fields.
+
+# --- kube-audit logs: NetworkPolicy change events ---
+  - type: log
+    id: kube-audit-netpol-changes
+    paths: ["/var/log/kubernetes/audit/audit.log"]
+    json.keys_under_root: true
+    fields:
+      data_stream.dataset: kube_audit
+    fields_under_root: true
+    include_lines: ['"resource":"networkpolicies"']   # filter to policy CRUD only
+
+# --- Cloud firewall deny logs (provider-specific syslog input) ---
+  - type: syslog
+    id: cloud-firewall-denies
+    protocol.udp:
+      host: "0.0.0.0:5140"
+    fields:
+      data_stream.dataset: cloud_firewall
+    fields_under_root: true
+
+output.elasticsearch:
+  hosts: ["${ES_URL}"]
+  api_key: "${ES_API_KEY}"
+  indices:
+    - index: "logs-network_flow-default"
+      when.equals: { fields.data_stream.dataset: "network_flow" }
+    - index: "logs-kube_audit-default"
+      when.equals: { fields.data_stream.dataset: "kube_audit" }
+    - index: "logs-cloud_firewall-default"
+      when.equals: { fields.data_stream.dataset: "cloud_firewall" }
+
+# --- Alert: unexpected egress to non-allowlisted external IP ---
+# ES|QL (Kibana Alerting rule against logs-network_flow-*):
+#
+# FROM logs-network_flow-*
+# | WHERE verdict == "FORWARDED" AND destination.ip NOT IN (<allowlist array>)
+#     AND NOT CIDR_MATCH(destination.ip, "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+# | STATS egress_count = COUNT(*) BY destination.ip, source.namespace
+# | WHERE egress_count > 5
+#
+# Fires on 5+ flows to the same unlisted external IP within the rule's
+# check interval (set to 5 min) — avoids alerting on a single blip while
+# still catching sustained exfil-shaped traffic quickly.
