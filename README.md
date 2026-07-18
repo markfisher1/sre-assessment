@@ -30,7 +30,7 @@ the export is reproducible.
      -H "kbn-xsrf: true" --form file=@dashboards/service-health.ndjson
    ```
 
-## Dashboard 1 — `service-health.ndjson`
+## Dashboard 1: `service-health.ndjson`
 
 | Panel | Type | Source |
 |---|---|---|
@@ -43,7 +43,7 @@ Controls: service.name dropdown, environment dropdown, time-range picker —
 all built as Kibana **Controls** (not per-panel filters) so one selector
 drives every panel.
 
-## Dashboard 2 — `rum-performance.ndjson`
+## Dashboard 2: `rum-performance.ndjson`
 
 | Panel | Type | Source |
 |---|---|---|
@@ -53,7 +53,7 @@ drives every panel.
 | Geo latency heatmap | Kibana Maps, `client.geo.location` | `rum-*` (requires APM Server GeoIP processor enabled) |
 | JS error table | Lens data table, grouped by `error.exception.message` | `rum-*`, `processor.event: error` |
 
-## Dashboard 3 — `business-transactions.ndjson`
+## Dashboard 3: `business-transactions.ndjson`
 
 | Panel | Type | Source |
 |---|---|---|
