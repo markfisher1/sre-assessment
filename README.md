@@ -66,3 +66,10 @@ Funnel stage names map 1:1 to the custom span names defined in
 `instrumentation/frontend/tracing.go` and `instrumentation/paymentservice/tracing.js`
 — that naming consistency is what makes the funnel query work without
 regex hacks.
+
+
+Screenshots:
+
+Discover - Elastic
+
+https://my-observability-project-e13dc4.kb.us-central1.gcp.elastic.cloud/app/metrics/hosts?_a=(dateRange:(from:now-15m,to:now),filters:!(),limit:100,panelFilters:!(),preferredSchema:semconv,query:(language:kuery,query:%27%27))&controlPanels=(os.type:(exclude:!f,existsSelected:!f,fieldName:os.type,grow:!t,id:os.type,ignore_validations:!f,order:0,run_past_timeout:!f,search_technique:wildcard,selectedOptions:!(),single_select:!f,sort:(by:_count,direction:desc),title:%27Operating%20System%27,type:options_list_control,use_global_filters:!t,values_source:field,width:small),service.name:(exclude:!f,existsSelected:!f,fieldName:service.name,grow:!t,id:service.name,ignore_validations:!f,order:2,run_past_timeout:!f,search_technique:wildcard,selectedOptions:!(),single_select:!f,sort:(by:_count,direction:desc),title:%27Service%20Name%27,type:options_list_control,use_global_filters:!t,values_source:field,width:small))
