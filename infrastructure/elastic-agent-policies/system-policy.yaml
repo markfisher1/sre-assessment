@@ -1,0 +1,62 @@
+# Fleet Agent Policy export (conceptual — actual policy is created/edited in
+# Kibana Fleet UI or via the Fleet API; this file documents the equivalent
+# API payload so it's version-controlled and reproducible).
+#
+# Applies to: bastion-host, ci-runner (both Ubuntu VMs)
+
+apiVersion: fleet/v1
+kind: AgentPolicy
+metadata:
+  name: sre-assessment-vm-policy
+spec:
+  description: "System monitoring for bastion + CI runner VMs"
+  namespace: boutique
+  monitoring:
+    enabled: true
+    logs: true
+    metrics: true
+  integrations:
+    - name: system
+      package: system
+      inputs:
+        - type: system/metrics
+          data_stream:
+            dataset: system.cpu
+          streams:
+            - metricsets: [cpu]
+              period: 10s
+              cpu.metrics: [percentages, normalized_percentages]
+            - metricsets: [memory]
+              period: 10s
+            - metricsets: [diskio]
+              period: 10s
+              diskio.include_devices: []   # all devices
+            - metricsets: [filesystem]
+              period: 60s
+            - metricsets: [fsstat]
+              period: 60s
+            - metricsets: [network]
+              period: 10s
+            - metricsets: [load]
+              period: 10s
+            - metricsets: [process, process_summary]
+              period: 10s
+              process.include_top_n:
+                by_cpu: 5
+                by_memory: 5
+        - type: system/logs
+          data_stream:
+            dataset: system.syslog
+          streams:
+            - paths: ["/var/log/syslog", "/var/log/auth.log"]
+
+---
+# Fleet enrollment (run on each VM):
+#
+#   curl -sL $FLEET_ENROLL_SCRIPT_URL | sudo bash -s -- \
+#     --url=$FLEET_URL \
+#     --enrollment-token=$FLEET_ENROLLMENT_TOKEN \
+#     --tag=sre-assessment,vm
+#
+# Verify: Kibana -> Observability -> Infrastructure -> Inventory should show
+# both hosts within ~30s of enrollment.

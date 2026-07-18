@@ -1,0 +1,99 @@
+# otel-collector Helm chart values — Agent mode (DaemonSet)
+# One per node. Receives local OTLP from app pods + scrapes host metrics.
+# Forwards everything to the Gateway; does NOT export to APM Server directly.
+
+mode: daemonset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+presets:
+  hostMetrics:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true          # adds k8s.pod.name, k8s.namespace.name, etc.
+  kubeletMetrics:
+    enabled: true
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    zipkin:
+      endpoint: 0.0.0.0:9411   # legacy trace ingest, e.g. older cartservice libs
+    hostmetrics:
+      collection_interval: 15s
+      scrapers:
+        cpu: {}
+        memory: {}
+        disk: {}
+        filesystem: {}
+        network: {}
+        load: {}
+        processes: {}
+
+  processors:
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 20
+    k8sattributes:
+      extract:
+        metadata:
+          - k8s.pod.name
+          - k8s.namespace.name
+          - k8s.deployment.name
+          - k8s.node.name
+    resourcedetection:
+      detectors: [env, system, k8snode]
+      timeout: 5s
+    batch:
+      send_batch_size: 512
+      timeout: 5s
+
+  exporters:
+    otlp/gateway:
+      endpoint: otel-gateway-collector.boutique.svc.cluster.local:4317
+      tls:
+        insecure: true   # in-cluster hop; mTLS handled at gateway->APM leg
+
+  extensions:
+    health_check: {}
+    zpages:
+      endpoint: 0.0.0.0:55679
+
+  service:
+    extensions: [health_check, zpages]
+    pipelines:
+      traces:
+        receivers: [otlp, zipkin]
+        processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+        exporters: [otlp/gateway]
+      metrics:
+        receivers: [otlp, hostmetrics]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [otlp/gateway]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [otlp/gateway]
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+ports:
+  otlp:
+    enabled: true
+  otlp-http:
+    enabled: true
+  zipkin:
+    enabled: true

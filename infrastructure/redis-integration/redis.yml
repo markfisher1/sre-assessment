@@ -1,0 +1,43 @@
+# Elastic Agent Redis integration — Fleet input config.
+# Redis backs cartservice directly, so this is the join point between
+# infra monitoring (Section 3.2) and the cartservice custom metrics
+# defined in instrumentation/cartservice/Instrumentation.cs — both land in
+# metrics-* and are correlated on the business-transactions dashboard.
+
+inputs:
+  - type: redis/metrics
+    id: redis-sre-assessment
+    data_stream.dataset: redis
+    hosts: ["${REDIS_HOST}:6379"]
+    password: "${REDIS_PASSWORD}"
+    period: 10s
+    metricsets:
+      - info          # connected_clients, used_memory, keyspace hits/misses, evicted_keys
+      - keyspace       # per-db key counts
+      - key            # optional: specific key patterns if hot-key tracking needed
+
+  - type: log
+    data_stream.dataset: redis.slowlog
+    # Requires: CONFIG SET slowlog-log-slower-than 10000  (10ms, in microseconds)
+    # The Redis integration polls SLOWLOG GET via the same connection —
+    # no separate file tail needed, unlike Postgres.
+
+# --- Alerting rules, see infrastructure/alerting-rules/redis-rules.json ---
+#
+# Rule 1: memory-approaching-max
+#   ES|QL: FROM metrics-redis.info-*
+#     | EVAL mem_pct = redis.info.memory.used.bytes / redis.info.memory.max.bytes
+#     | WHERE mem_pct > 0.85
+#
+# Rule 2: high-eviction-rate
+#   ES|QL: FROM metrics-redis.info-*
+#     | STATS evictions = MAX(redis.info.stats.evicted_keys) BY BUCKET(@timestamp, 5 minute)
+#     | WHERE evictions > <baseline_p95 * 2>   # set from a week of baseline data
+
+# --- Non-Fleet fallback: Metricbeat redis module ---
+# metricbeat.modules:
+# - module: redis
+#   metricsets: ["info", "keyspace"]
+#   period: 10s
+#   hosts: ["${REDIS_HOST}:6379"]
+#   password: "${REDIS_PASSWORD}"

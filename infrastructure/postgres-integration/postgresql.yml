@@ -1,0 +1,45 @@
+# Elastic Agent PostgreSQL integration — Fleet input config.
+# Equivalent standalone Metricbeat module config shown at bottom for the
+# non-Fleet fallback path.
+
+inputs:
+  - type: sql/metrics          # postgresql metricset family
+    id: postgresql-sre-assessment
+    data_stream.dataset: postgresql
+    hosts: ["postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/postgres?sslmode=require"]
+    period: 10s
+    metricsets:
+      - database        # size, connection counts
+      - bgwriter        # checkpoint/WAL activity
+      - activity         # active connections, current queries
+      - statement        # pg_stat_statements-backed slow query stats
+
+logs_input:
+  - type: log
+    data_stream.dataset: postgresql.log
+    paths:
+      - /var/log/postgresql/postgresql-*.log
+    # requires postgresql.conf: log_min_duration_statement = 200 (ms)
+    # so slow queries are actually written to the log stream being shipped
+
+# --- Alerting rules provisioned separately, see:
+#   infrastructure/alerting-rules/postgres-rules.json
+#
+# Rule 1: connection-pool-exhaustion
+#   ES|QL: FROM metrics-postgresql.activity-*
+#     | WHERE pg.activity.count > (0.8 * pg.activity.max_connections)
+#
+# Rule 2: cache-hit-ratio-degradation
+#   ES|QL: FROM metrics-postgresql.database-*
+#     | EVAL hit_ratio = pg.database.blocks.hit / (pg.database.blocks.hit + pg.database.blocks.read)
+#     | WHERE hit_ratio < 0.95
+
+# --- Non-Fleet fallback: Metricbeat postgresql module ---
+# metricbeat.modules:
+# - module: postgresql
+#   metricsets: ["database", "bgwriter", "activity", "statement"]
+#   period: 10s
+#   hosts: ["postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432?sslmode=require"]
+# output.elasticsearch:
+#   hosts: ["${ES_URL}"]
+#   api_key: "${ES_API_KEY}"

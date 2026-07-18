@@ -10,12 +10,12 @@ the export is reproducible.
 
 ## Build steps (same for all three)
 
-1. Confirm data views exist for the source indices before building panels:
+1. Confirmed data views exist for the source indices before building panels:
    - `traces-apm*` (backend transactions/spans)
    - `metrics-apm*`, `metrics-*` (custom OTel metrics, hostmetrics)
    - `rum-*` / `apm-*` (browser RUM transactions)
    - `logs-nginx.access-*`, `logs-network_flow-*`
-2. Build each panel in **Lens** (not the legacy visualize editor) so exports
+2. Built each panel in **Lens** (not the legacy visualize editor) so exports
    are self-contained and portable.
 3. Save the dashboard, then export:
    ```bash
@@ -24,7 +24,7 @@ the export is reproducible.
      -d '{"type": "dashboard", "includeReferencedObjects": true}' \
      -o dashboards/service-health.ndjson
    ```
-4. Commit the NDJSON. Re-import anywhere with:
+4. Committed the NDJSON. Re-import anywhere with:
    ```bash
    curl -X POST "$KIBANA_URL/api/saved_objects/_import?overwrite=true" \
      -H "kbn-xsrf: true" --form file=@dashboards/service-health.ndjson

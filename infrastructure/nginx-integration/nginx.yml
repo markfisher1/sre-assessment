@@ -1,0 +1,71 @@
+# NGINX Ingress Controller monitoring — two data paths:
+#   1) metrics (Prometheus-format /metrics endpoint) -> OTel Collector
+#      Prometheus receiver -> OTLP -> Elastic (chosen over the NGINX
+#      Metricbeat module because the Ingress Controller already exposes
+#      Prometheus format natively — no need for a second scrape mechanism).
+#   2) access logs (structured JSON) -> Filebeat NGINX module -> Elasticsearch
+
+# --- 1. Metrics: added as a receiver on the Gateway collector ---
+# (excerpt to merge into otel-collector/values-gateway.yaml receivers:)
+#
+# receivers:
+#   prometheus:
+#     config:
+#       scrape_configs:
+#         - job_name: 'nginx-ingress'
+#           scrape_interval: 15s
+#           kubernetes_sd_configs:
+#             - role: pod
+#               namespaces: { names: [ingress-nginx] }
+#           relabel_configs:
+#             - source_labels: [__meta_kubernetes_pod_label_app]
+#               action: keep
+#               regex: ingress-nginx
+#
+# Key series scraped (from ingress-nginx's built-in exporter):
+#   nginx_ingress_controller_requests               -> request rate by ingress/host/path/status
+#   nginx_ingress_controller_request_duration_seconds_bucket -> latency histograms (p50/p90/p99)
+#   nginx_ingress_controller_ssl_expire_time_seconds -> cert expiry
+#   nginx_ingress_controller_nginx_process_connections -> active connections
+#   nginx_ingress_controller_response_size / request_size -> body size distributions
+#   nginx_ingress_controller_upstream_latency_seconds -> isolates LB overhead vs backend
+
+# --- 2. Access logs: enable JSON log format on the controller ---
+# ConfigMap patch for ingress-nginx-controller:
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ingress-nginx-controller
+  namespace: ingress-nginx
+data:
+  log-format-escape-json: "true"
+  log-format-upstream: >
+    {"time": "$time_iso8601", "remote_addr": "$remote_addr",
+     "host": "$host", "request_uri": "$request_uri",
+     "status": $status, "request_time": $request_time,
+     "upstream_response_time": "$upstream_response_time",
+     "upstream_addr": "$upstream_addr", "http_referer": "$http_referer",
+     "http_user_agent": "$http_user_agent", "request_method": "$request_method",
+     "bytes_sent": $bytes_sent, "request_length": $request_length}
+
+---
+# Filebeat NGINX module config, shipping to logs-nginx.access-*
+filebeat.modules:
+  - module: nginx
+    access:
+      enabled: true
+      var.paths: ["/var/log/nginx/access.log*"]
+      var.input: "log"
+    error:
+      enabled: true
+      var.paths: ["/var/log/nginx/error.log*"]
+
+output.elasticsearch:
+  hosts: ["${ES_URL}"]
+  api_key: "${ES_API_KEY}"
+
+# --- Alerting rules, see infrastructure/alerting-rules/nginx-rules.json ---
+# Rule 1: 5xx-error-spike        — >5% of requests over rolling 2min window
+# Rule 2: upstream-unavailable   — any 502/503 in a 1min window (zero-tolerance)
+# Rule 3: ssl-cert-expiring-soon — nginx_ingress_controller_ssl_expire_time_seconds
+#                                   within 14 days of now

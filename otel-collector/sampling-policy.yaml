@@ -1,0 +1,28 @@
+# Tail-sampling policy — documented standalone for reviewers.
+# Implemented inline in values-gateway.yaml under processors.tail_sampling.
+#
+# Rationale per policy:
+#
+# 1. errors-always-sampled
+#    Any trace containing a span with status_code=ERROR is kept at 100%.
+#    Incidents are diagnosed from traces; losing error traces to sampling
+#    defeats the purpose of tracing entirely.
+#
+# 2. slow-traces-always-sampled (threshold_ms: 800)
+#    800ms chosen as ~3x the observed p50 checkout latency in baseline load
+#    testing. Anything slower than that is worth keeping regardless of
+#    outcome, to catch latent degradation before it becomes errors.
+#    Revisit this threshold quarterly against actual p99 trends — it should
+#    not be a permanent magic number.
+#
+# 3. baseline-10-percent
+#    Deterministic probabilistic sampling on trace ID (not per-span), so a
+#    kept trace keeps ALL its spans. 10% gives enough volume for RED-metric
+#    percentile calculations (Section 2.2 dashboards) without full-fidelity
+#    storage cost. At expected ~500 new traces/sec this yields ~50 traces/sec
+#    retained from this policy alone, plus 100% of errors/slow traces.
+#
+# Storage impact estimate (rough, document your own numbers from the actual
+# environment): at 500 traces/sec, 10 spans/trace avg, ~1KB/span:
+#   - unsampled: ~5MB/s -> untenable for a demo cluster
+#   - with this policy (~15% effective keep rate incl. errors+slow): ~750KB/s

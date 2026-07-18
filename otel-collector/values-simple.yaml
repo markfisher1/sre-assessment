@@ -1,0 +1,113 @@
+# otel-collector Helm values — SIMPLE mode: one DaemonSet, head sampling,
+# direct export to Elastic APM Server. No gateway, no tail sampling.
+#
+# Use this instead of values-agent.yaml + values-gateway.yaml when speed
+# matters more than sampling precision. See ../FAST-TRACK.md for the
+# trade-off this accepts.
+
+mode: daemonset
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+presets:
+  hostMetrics:
+    enabled: true
+  kubernetesAttributes:
+    enabled: true
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc: { endpoint: 0.0.0.0:4317 }
+        http: { endpoint: 0.0.0.0:4318 }
+    hostmetrics:
+      collection_interval: 15s
+      scrapers:
+        cpu: {}
+        memory: {}
+        disk: {}
+        filesystem: {}
+        network: {}
+        load: {}
+
+  processors:
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 20
+    k8sattributes:
+      extract:
+        metadata:
+          - k8s.pod.name
+          - k8s.namespace.name
+          - k8s.deployment.name
+    resourcedetection:
+      # Removed "k8snode" — it requires cluster-scoped RBAC (get on "nodes")
+      # that the chart's default service account doesn't grant, and it's
+      # not needed: k8s_attributes processor already tags pod/namespace/
+      # deployment names from the pod's own local context.
+      detectors: [env, system]
+    # Head sampling: cheap, one processor, no cross-span coordination needed.
+    # Trade-off: unlike tail sampling, this can NOT guarantee 100% of error
+    # traces are kept (an error span later in a trace won't retroactively
+    # rescue a trace already dropped at the root). Acceptable for a fast
+    # deployment; upgrade to values-gateway.yaml's tail_sampling if error
+    # visibility becomes a real gap.
+    probabilistic_sampler:
+      sampling_percentage: 30
+    batch:
+      send_batch_size: 512
+      timeout: 5s
+
+  exporters:
+    otlp/elastic:
+      # Elastic Cloud's ingest URL already includes its port (:443) — do NOT
+      # append :8200 like you would for a self-hosted APM Server.
+      # Strip the "https://" prefix here; the exporter adds TLS via the
+      # `tls:` block below, not the URL scheme.
+      endpoint: ${env:APM_SERVER_HOST}
+      headers:
+        Authorization: "ApiKey ${env:APM_TOKEN}"
+      tls:
+        insecure: false
+
+  extensions:
+    health_check: {}
+
+  service:
+    extensions: [health_check]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, resourcedetection, probabilistic_sampler, batch]
+        exporters: [otlp/elastic]
+      metrics:
+        receivers: [otlp, hostmetrics]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [otlp/elastic]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [otlp/elastic]
+
+extraEnvs:
+  - name: APM_SERVER_URL
+    valueFrom: { secretKeyRef: { name: apm-server-token, key: url } }
+  # APM_SERVER_HOST = APM_SERVER_URL with "https://" stripped, e.g.
+  # "my-observability-project-e13dc4.ingest.us-central1.gcp.elastic.cloud:443"
+  # Set this directly (not derived) since Helm values can't do string
+  # manipulation on a secret at render time.
+  - name: APM_SERVER_HOST
+    valueFrom: { secretKeyRef: { name: apm-server-token, key: host } }
+  - name: APM_TOKEN
+    valueFrom: { secretKeyRef: { name: apm-server-token, key: token } }
+
+# No custom CA needed — Elastic Cloud's ingest endpoint uses a
+# publicly-trusted certificate, so the collector's default trust store
+# already validates it.
+
+resources:
+  limits: { cpu: 300m, memory: 400Mi }
+  requests: { cpu: 100m, memory: 150Mi }

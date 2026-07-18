@@ -1,0 +1,103 @@
+# otel-collector Helm chart values — Gateway mode (Deployment)
+# Central choke point: tail sampling + single egress to Elastic APM Server.
+
+mode: deployment
+replicaCount: 2
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 20
+
+    resourcedetection:
+      detectors: [env, k8scluster]
+      timeout: 5s
+
+    # See otel-collector/sampling-policy.yaml for the full documented policy
+    tail_sampling:
+      decision_wait: 10s
+      num_traces: 100000
+      expected_new_traces_per_sec: 500
+      policies:
+        - name: errors-always-sampled
+          type: status_code
+          status_code: { status_codes: [ERROR] }
+        - name: slow-traces-always-sampled
+          type: latency
+          latency: { threshold_ms: 800 }
+        - name: baseline-10-percent
+          type: probabilistic
+          probabilistic: { sampling_percentage: 10 }
+
+    batch:
+      send_batch_size: 1024
+      timeout: 5s
+
+  exporters:
+    otlp/elastic:
+      endpoint: ${env:APM_SERVER_URL}:8200
+      headers:
+        Authorization: "Bearer ${env:APM_TOKEN}"
+      tls:
+        insecure: false
+        ca_file: /etc/otel/certs/ca.crt
+
+  extensions:
+    health_check: {}
+    zpages:
+      endpoint: 0.0.0.0:55679
+
+  service:
+    extensions: [health_check, zpages]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, tail_sampling, batch]
+        exporters: [otlp/elastic]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [otlp/elastic]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [otlp/elastic]
+
+extraEnvs:
+  - name: APM_SERVER_URL
+    valueFrom:
+      secretKeyRef: { name: apm-server-token, key: url }
+  - name: APM_TOKEN
+    valueFrom:
+      secretKeyRef: { name: apm-server-token, key: token }
+
+extraVolumes:
+  - name: apm-ca
+    secret: { secretName: apm-server-ca }
+extraVolumeMounts:
+  - name: apm-ca
+    mountPath: /etc/otel/certs
+    readOnly: true
+
+resources:
+  limits: { cpu: 1, memory: 1Gi }
+  requests: { cpu: 500m, memory: 512Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
