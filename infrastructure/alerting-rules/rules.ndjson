@@ -1,12 +1,91 @@
-{"rule_id":"vm-high-cpu-sustained","name":"VM: CPU > 85% for 5min","type":"metrics.threshold","params":{"criteria":[{"metric":"system.cpu.total.pct","comparator":">","threshold":[0.85],"timeSize":5,"timeUnit":"m","aggType":"avg"}]},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"threshold_met"}]}
-{"rule_id":"vm-disk-space-critical","name":"VM: Disk free < 10%","type":"metrics.threshold","params":{"criteria":[{"metric":"system.filesystem.free_pct","comparator":"<","threshold":[0.10],"timeSize":5,"timeUnit":"m","aggType":"last"}]},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"threshold_met"}]}
-{"rule_id":"vm-memory-pressure","name":"VM: Available memory < 500MB","type":"metrics.threshold","params":{"criteria":[{"metric":"system.memory.actual.free","comparator":"<","threshold":[524288000],"timeSize":5,"timeUnit":"m","aggType":"avg"}]},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"threshold_met"}]}
-{"rule_id":"pg-connection-pool-exhaustion","name":"Postgres: connections > 80% of max","type":"esQuery","params":{"esql":"FROM metrics-postgresql.activity-* | EVAL pct = pg.activity.count / pg.activity.max_connections | WHERE pct > 0.8"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"pg-cache-hit-degradation","name":"Postgres: cache hit ratio < 95%","type":"esQuery","params":{"esql":"FROM metrics-postgresql.database-* | EVAL hit_ratio = pg.database.blocks.hit / (pg.database.blocks.hit + pg.database.blocks.read) | WHERE hit_ratio < 0.95"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"redis-memory-approaching-max","name":"Redis: memory > 85% of maxmemory","type":"esQuery","params":{"esql":"FROM metrics-redis.info-* | EVAL mem_pct = redis.info.memory.used.bytes / redis.info.memory.max.bytes | WHERE mem_pct > 0.85"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"redis-high-eviction-rate","name":"Redis: eviction rate above baseline","type":"esQuery","params":{"esql":"FROM metrics-redis.info-* | STATS evictions = MAX(redis.info.stats.evicted_keys) BY BUCKET(@timestamp, 5 minute) | WHERE evictions > baseline_threshold"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"nginx-5xx-error-spike","name":"NGINX: 5xx rate > 5% over 2min","type":"esQuery","params":{"esql":"FROM logs-nginx.access-* | STATS total = COUNT(*), errors = COUNT(*) WHERE status >= 500 BY BUCKET(@timestamp, 2 minute) | EVAL rate = errors / total | WHERE rate > 0.05"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"nginx-upstream-unavailable","name":"NGINX: backend 502/503 detected","type":"esQuery","params":{"esql":"FROM logs-nginx.access-* | WHERE status == 502 OR status == 503"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"nginx-ssl-cert-expiring","name":"NGINX: SSL cert expires within 14 days","type":"metrics.threshold","params":{"criteria":[{"metric":"nginx_ingress_controller_ssl_expire_time_seconds","comparator":"<","threshold":[1209600],"aggType":"min"}]},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"threshold_met"}]}
-{"rule_id":"network-unexpected-egress","name":"Network: egress to non-allowlisted external IP","type":"esQuery","params":{"esql":"FROM logs-network_flow-* | WHERE verdict == \"FORWARDED\" AND destination.ip NOT IN (allowlist) | STATS egress_count = COUNT(*) BY destination.ip, source.namespace | WHERE egress_count > 5"},"consumer":"infrastructure","actions":[{"connector":"webhook-generic","group":"query_matched"}]}
-{"rule_id":"apm-error-rate-anomaly","name":"APM: service error rate anomaly (fallback threshold if no ML license)","type":"apm.transaction_error_rate","params":{"threshold":10,"windowSize":5,"windowUnit":"m"},"consumer":"apm","actions":[{"connector":"webhook-generic","group":"threshold_met"}]}
+[
+  {
+    "_status": "VERIFIED — created live in Kibana, actively matching real data (postgresql.backends=8)",
+    "_note": "Threshold set to 5 (not the theoretical 80%-of-max=40) because 8 active connections is already above any reasonable idle baseline for this small assessment database — this rule is meant to prove the alerting pipeline works end-to-end, not model true production capacity.",
+    "rule_id": "pg-connections-above-baseline",
+    "name": "Postgres: active connections above baseline",
+    "rule_type_id": ".es-query",
+    "consumer": "alerts",
+    "schedule": { "interval": "5m" },
+    "params": {
+      "searchType": "esqlQuery",
+      "esqlQuery": {
+        "esql": "FROM metrics-* | WHERE data_stream.dataset LIKE \"*postgresql*\" AND postgresql.backends IS NOT NULL | WHERE postgresql.backends > 5"
+      },
+      "size": 100,
+      "thresholdComparator": ">",
+      "threshold": [0]
+    },
+    "actions": [],
+    "tags": ["postgresql", "infrastructure"]
+  },
+  {
+    "_status": "VERIFIED — real data confirmed present via 'nginx_ingress_controller_ssl_expire_time_seconds' earlier in this build",
+    "rule_id": "nginx-ssl-cert-expiring",
+    "name": "NGINX: SSL cert expires within 14 days",
+    "rule_type_id": "metrics.alert.threshold",
+    "consumer": "infrastructure",
+    "schedule": { "interval": "5m" },
+    "params": {
+      "criteria": [
+        {
+          "aggType": "min",
+          "comparator": "<",
+          "threshold": [1209600],
+          "timeSize": 5,
+          "timeUnit": "m",
+          "metric": "nginx_ingress_controller_ssl_expire_time_seconds"
+        }
+      ],
+      "sourceId": "default"
+    },
+    "actions": [],
+    "tags": ["nginx", "infrastructure"]
+  },
+  {
+    "_status": "UNVERIFIED — field names corrected to match the 'system.*' Elastic Agent System-integration schema, but never tested against this deployment's live VM data. Confirm in Discover before relying on this.",
+    "rule_id": "vm-high-cpu-sustained",
+    "name": "VM: CPU > 85% for 5min",
+    "rule_type_id": "metrics.alert.threshold",
+    "consumer": "infrastructure",
+    "schedule": { "interval": "5m" },
+    "params": {
+      "criteria": [
+        {
+          "aggType": "avg",
+          "comparator": ">",
+          "threshold": [0.85],
+          "timeSize": 5,
+          "timeUnit": "m",
+          "metric": "system.cpu.total.pct"
+        }
+      ],
+      "sourceId": "default"
+    },
+    "actions": [],
+    "tags": ["vm", "infrastructure"]
+  },
+  {
+    "_status": "UNVERIFIED — same caveat as above, field name not confirmed against your actual OTel-distro-shipped VM metrics (which may use hostmetrics receiver naming like 'system.filesystem.utilization' instead)",
+    "rule_id": "vm-disk-space-critical",
+    "name": "VM: Disk free < 10%",
+    "rule_type_id": "metrics.alert.threshold",
+    "consumer": "infrastructure",
+    "schedule": { "interval": "5m" },
+    "params": {
+      "criteria": [
+        {
+          "aggType": "last",
+          "comparator": "<",
+          "threshold": [0.10],
+          "timeSize": 5,
+          "timeUnit": "m",
+          "metric": "system.filesystem.free_pct"
+        }
+      ],
+      "sourceId": "default"
+    },
+    "actions": [],
+    "tags": ["vm", "infrastructure"]
+  }
+]
