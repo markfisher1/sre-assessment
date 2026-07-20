@@ -1,0 +1,29 @@
+{
+    "name":  "Postgres: active connections above baseline",
+    "rule_type_id":  ".es-query",
+    "consumer":  "alerts",
+    "schedule":  {
+                     "interval":  "5m"
+                 },
+    "params":  {
+                   "searchType":  "esqlQuery",
+                   "esqlQuery":  {
+                                     "esql":  "FROM metrics-postgresql.activity-* | WHERE pg.activity.count \u003e (0.8 * pg.activity.max_connections)"
+                                 },
+                   "size":  100,
+                   "thresholdComparator":  "\u003e",
+                   "threshold":  [
+                                     0
+                                 ],
+                   "timeWindowSize":  5,
+                   "timeWindowUnit":  "m",
+                   "timeField":  "@timestamp"
+               },
+    "actions":  [
+
+                ],
+    "tags":  [
+                 "postgresql",
+                 "infrastructure"
+             ]
+}

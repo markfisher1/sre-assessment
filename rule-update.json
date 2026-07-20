@@ -1,0 +1,27 @@
+{
+    "actions":  [
+
+                ],
+    "params":  {
+                   "searchType":  "esqlQuery",
+                   "esqlQuery":  {
+                                     "esql":  "FROM metrics-postgresql.activity-* | WHERE pg.activity.count \u003e (0.8 * pg.activity.max_connections)"
+                                 },
+                   "size":  100,
+                   "thresholdComparator":  "\u003e",
+                   "threshold":  [
+                                     0
+                                 ],
+                   "timeWindowSize":  5,
+                   "timeWindowUnit":  "m",
+                   "timeField":  "@timestamp"
+               },
+    "tags":  [
+                 "postgresql",
+                 "infrastructure"
+             ],
+    "name":  "Postgres: active connections above baseline",
+    "schedule":  {
+                     "interval":  "5m"
+                 }
+}

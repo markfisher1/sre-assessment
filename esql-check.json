@@ -1,0 +1,3 @@
+{
+    "query":  "FROM metrics-* | WHERE data_stream.dataset LIKE \"*postgresql*\" | LIMIT 1"
+}
